@@ -25,7 +25,8 @@ static inline void update_dt(struct timeval *dt, const struct timeval *t1,
 #define TOLERANCE	2
 
 #define PRINT_STATUS(s)	printf("%s%7" PRIu64 "/%9" PRIu64 "/%7" PRIu64 "/%7" \
-	PRIu64, (s), *ptr_ok, *ptr_corrupted, *ptr_changed, *ptr_overwritten)
+	PRIu64 "%s", (s), *ptr_ok, *ptr_corrupted, *ptr_changed, \
+	*ptr_overwritten, tail_msg)
 
 #define BLANK	"                                 "
 #define CLEAR	("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b" \
@@ -33,7 +34,7 @@ static inline void update_dt(struct timeval *dt, const struct timeval *t1,
 
 static void validate_file(const char *path, int number,
 	uint64_t *ptr_ok, uint64_t *ptr_corrupted, uint64_t *ptr_changed,
-	uint64_t *ptr_overwritten, uint64_t *ptr_size, int *ptr_read_all,
+	uint64_t *ptr_overwritten, uint64_t *ptr_size, int *read_all,
 	struct timeval *ptr_dt, int progress)
 {
 	char full_fn[PATH_MAX];
@@ -46,7 +47,7 @@ static void validate_file(const char *path, int number,
 	uint64_t offset, expected_offset;
 	struct drand48_data state;
 	long int rand_int;
-	int final_errno;
+	char *tail_msg = "";
 	struct timeval t1, t2;
 	/* Progress time. */
 	struct timeval pt1 = { .tv_sec = -1000, .tv_usec = 0 };
@@ -56,7 +57,11 @@ static void validate_file(const char *path, int number,
 	full_fn_from_number(full_fn, &filename, path, number);
 	printf("Validating file %s ... %s", filename, progress ? BLANK : "");
 	fflush(stdout);
+#ifdef CYGWIN
+	f = fopen(full_fn, "rb+");
+#else
 	f = fopen(full_fn, "rb");
+#endif
 	if (!f)
 		err(errno, "Can't open file %s", full_fn);
 	fd = fileno(f);
@@ -64,7 +69,7 @@ static void validate_file(const char *path, int number,
 
 	/* If the kernel follows our advice, f3read won't ever read from cache
 	 * even when testing small memory cards without a remount, and
-	 * we should have a better reading-speed measurement.
+	 * we should have better reading speed measurement.
 	 */
 	assert(!fdatasync(fd));
 	assert(!posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED));
@@ -76,7 +81,6 @@ static void validate_file(const char *path, int number,
 
 	ptr_end = sector + SECTOR_SIZE;
 	sectors_read = fread(sector, SECTOR_SIZE, 1, f);
-	final_errno = errno;
 	expected_offset = (uint64_t)number * GIGABYTES;
 	while (sectors_read > 0) {
 		assert(sectors_read == 1);
@@ -94,7 +98,6 @@ static void validate_file(const char *path, int number,
 		}
 
 		sectors_read = fread(sector, SECTOR_SIZE, 1, f);
-		final_errno = errno;
 		expected_offset += SECTOR_SIZE;
 
 		if (offset_match) {
@@ -123,19 +126,15 @@ static void validate_file(const char *path, int number,
 	assert(!gettimeofday(&t2, NULL));
 	update_dt(ptr_dt, &t1, &t2);
 
-	*ptr_read_all = feof(f);
+	*read_all = feof(f);
+	assert(*read_all || errno == EIO);
 	*ptr_size = ftell(f);
 	assert(*ptr_size >= 0);
-
-	PRINT_STATUS(progress ? CLEAR : "");
-	if (!*ptr_read_all) {
-		assert(ferror(f));
-		printf(" - NOT fully read due to \"%s\"",
-			strerror(final_errno));
-	}
-	printf("\n");
-
 	fclose(f);
+
+	tail_msg = read_all ? "" : " - NOT fully read";
+	PRINT_STATUS(progress ? CLEAR : "");
+	printf("\n");
 }
 
 static void report(const char *prefix, uint64_t i)

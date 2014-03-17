@@ -1,3 +1,10 @@
+cygwin:
+	gcc -Wall -Wno-char-subscripts -DCYGWIN -c utils.c
+	gcc -Wall -Wno-char-subscripts -DCYGWIN -c f3write.c
+	gcc -Wall -Wno-char-subscripts -DCYGWIN -c f3read.c
+	gcc -o f3write utils.o f3write.o -lm
+	gcc -o f3read utils.o f3read.o
+
 linux:
 	gcc -Wall -c utils.c
 	gcc -Wall -c f3write.c
